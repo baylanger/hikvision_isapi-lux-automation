@@ -1,0 +1,372 @@
+# ============================================================================
+# Cam Office - Lux-driven exposure automation
+# Replaces the old sunrise/sunset XML-upload automation.
+#
+# Deploy as a HA "package" (recommended): drop this file at
+# /config/packages/cam-office-lux-automation.yaml and make sure
+# `homeassistant: packages: !include_dir_named packages` is set in
+# configuration.yaml. Otherwise, split the four top-level keys
+# (input_number / template / automation) into your existing
+# configuration.yaml / automations.yaml as appropriate.
+#
+# Validate before deploying:
+#   python3 -c "import yaml; yaml.safe_load(open('cam-office-lux-automation.yaml').read().replace('!include', '#!include'))"
+#
+# ----------------------------------------------------------------------------
+# About the input_number fields below (min / max / step / initial):
+#   min / max  - the range enforced on the helper. The UI slider/box will not
+#                let you set a value outside this range, and if you type one
+#                in via a service call it gets clamped to this range.
+#   step       - the increment the UI slider moves by per click/drag. Typing
+#                an exact value directly still works even if it's not a
+#                multiple of step.
+#   initial    - the value used ONLY the very first time this entity is ever
+#                created (no prior state to restore). Once the entity exists,
+#                its live value persists across HA restarts and config
+#                reloads independently of this file - editing `initial` here
+#                later has no effect on an already-existing entity. It only
+#                matters again if the entity is deleted and recreated.
+# ----------------------------------------------------------------------------
+# ============================================================================
+
+input_text:
+  cam_office_lux_sensor_entity_id:
+    name: Cam Office Lux Sensor Entity ID
+    icon: mdi:brightness-5
+    max: 255
+    initial: sensor.office_sensor_illuminance
+
+input_number:
+  ds_2cd2385g1_i_cam_office_zutzut_com_lux_floor:
+    name: Cam Office Lux Floor
+    icon: mdi:brightness-4
+    min: 0
+    max: 1000
+    step: 1
+    initial: 5
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_lux_ceiling:
+    name: Cam Office Lux Ceiling
+    icon: mdi:brightness-7
+    min: 1000
+    max: 30000
+    step: 100
+    initial: 25000
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_gain_max:
+    name: Cam Office Gain Max (near-night)
+    min: 0
+    max: 100
+    step: 1
+    initial: 80
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_gain_min:
+    name: Cam Office Gain Min (peak brightness)
+    min: 0
+    max: 100
+    step: 1
+    initial: 10
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_min:
+    name: Cam Office Shutter Index Min (near-night)
+    min: 0
+    max: 14
+    step: 1
+    initial: 5      # index 5 = 1/120
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_max:
+    name: Cam Office Shutter Index Max (peak brightness)
+    min: 0
+    max: 14
+    step: 1
+    initial: 14     # index 14 = 1/100000
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day:
+    name: Cam Office Lux Threshold - Night to Day
+    min: 0
+    max: 2000
+    step: 5
+    initial: 150
+
+  ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night:
+    name: Cam Office Lux Threshold - Day to Night
+    min: 0
+    max: 2000
+    step: 5
+    initial: 90
+
+# ----------------------------------------------------------------------------
+# Template sensors: computed once per trigger via `variables`, shared by all
+# three sensors below so they never see mismatched/stale values from each other.
+# ----------------------------------------------------------------------------
+template:
+  - trigger:
+      # Sole trigger: re-evaluate everything once per minute. Deliberately
+      # NOT a `state` trigger on the lux sensor, since that sensor is chosen
+      # dynamically (see `lux_sensor` below) and `state` triggers require a
+      # literal, static entity_id - they can't target a helper's value.
+      # A 1-minute lag between a real lux change and the camera updating is
+      # an acceptable trade-off for full sensor portability.
+      - trigger: time_pattern
+        minutes: "/1"
+    variables:
+      # Resolve WHICH sensor to read from the input_text helper, so this
+      # automation isn't hardcoded to one specific lux sensor entity.
+      lux_sensor: "{{ states('input_text.cam_office_lux_sensor_entity_id') }}"
+      # The actual lux reading. Floored at 1 (never 0) because step 6 takes
+      # a natural log of this value, and log(0) is undefined/-infinity.
+      lux: "{{ [states(lux_sensor) | float(0), 1] | max }}"
+      # Lux value treated as "fully dark" - the bottom anchor of the
+      # brightness curve. Read live from its input_number each cycle.
+      floor: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_floor') | float(5) }}"
+      # Lux value treated as "fully bright" - the top anchor of the curve.
+      ceil: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_ceiling') | float(25000) }}"
+      # Raw log-scale position of the current lux between floor and ceiling.
+      # Log scale (rather than linear) because exposure/perceived brightness
+      # relates to light roughly logarithmically - each camera "stop" is a
+      # doubling of light - so a linear map would waste most of its range
+      # on the bottom sliver of lux values. Can be <0 or >1 before clamping
+      # below (e.g. if lux is below `floor`).
+      frac_raw: >
+        {{ ( (lux | log) - (floor | log) ) / ( (ceil | log) - (floor | log) ) }}
+      # `frac_raw` clamped to 0-1. This is the single normalized "how bright
+      # is it right now" value that everything else below is computed from.
+      frac: "{{ [ [frac_raw, 0] | max, 1] | min }}"
+      # Camera gain to use at frac=0 (near-night) - i.e. the ceiling of gain.
+      gmax: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_gain_max') | float(80) }}"
+      # Camera gain to use at frac=1 (peak brightness) - i.e. the floor of gain.
+      gmin: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_gain_min') | float(10) }}"
+      # Linear interpolation between gmax and gmin using frac, rounded to
+      # the nearest step of 5. The rounding acts as a deadband: small lux
+      # fluctuations that don't shift the result by a full 5 won't change
+      # this value at all, so the sensor's state (and downstream trigger)
+      # only updates on meaningful changes, not sensor jitter.
+      target_gain: "{{ ((gmax - frac * (gmax - gmin)) / 5) | round(0) * 5 }}"
+      # The camera's real, ordered list of shutter speed options (slowest
+      # first). EDIT THIS to match your own camera's actual select options
+      # if reusing this automation elsewhere - the index math below assumes
+      # this exact list.
+      shutter_options: >
+        {{ ['1/3','1/6','1/12','1/30','1/60','1/120','1/200','1/250','1/500',
+            '1/750','1/1000','1/2000','1/4000','1/10000','1/100000'] }}
+      # Index into `shutter_options` to use at frac=0 (near-night, i.e. the
+      # slowest shutter allowed). Index 5 = 1/120 in the default list.
+      imin: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_min') | int(5) }}"
+      # Index into `shutter_options` to use at frac=1 (peak brightness, i.e.
+      # the fastest shutter allowed). Index 14 = 1/100000 in the default list.
+      imax: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_max') | int(14) }}"
+      # Linear interpolation between imin and imax using frac, rounded to
+      # the nearest whole index (shutter options are discrete, not
+      # continuous, so this must land on an actual list position) and
+      # clamped so it can never fall outside the list's valid range.
+      shutter_idx: >
+        {{ [ [ (imin + frac * (imax - imin)) | round(0), 0] | max,
+             shutter_options | length - 1 ] | min }}
+    sensor:
+      - name: "Cam Office Exposure Frac"
+        unique_id: ds_2cd2385g1_i_cam_office_zutzut_com_exposure_frac
+        state: "{{ frac | round(4) }}"
+
+      - name: "Cam Office Target Gain"
+        unique_id: ds_2cd2385g1_i_cam_office_zutzut_com_target_gain
+        unit_of_measurement: "%"
+        state: "{{ target_gain }}"
+
+      - name: "Cam Office Target Shutter"
+        unique_id: ds_2cd2385g1_i_cam_office_zutzut_com_target_shutter
+        state: "{{ shutter_options[shutter_idx] }}"
+
+# ----------------------------------------------------------------------------
+# Automations
+# ----------------------------------------------------------------------------
+automation:
+
+  # Continuously applies gain + shutter from the computed targets above.
+  # Only writes to the camera when the target actually differs from the
+  # current value (gain is already quantized to steps of 5 in the template,
+  # shutter is inherently discrete) - so no needless chatter.
+  - alias: "Cam Office - Apply exposure from lux"
+    id: cam_office_apply_exposure
+    mode: restart
+    trigger:
+      - trigger: state
+        entity_id: sensor.cam_office_exposure_frac
+        for: "00:00:15"
+    condition:
+      - condition: template
+        value_template: "{{ states('sensor.cam_office_target_gain') not in ['unknown','unavailable'] }}"
+    action:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ states('sensor.cam_office_target_gain') | float(0) !=
+                     states('number.ds_2cd2385g1_i_cam_office_zutzut_com_gain') | float(-1) }}
+            sequence:
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_gain
+                data:
+                  value: "{{ states('sensor.cam_office_target_gain') }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ states('sensor.cam_office_target_shutter') !=
+                     states('select.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_speed') }}
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_speed
+                data:
+                  option: "{{ states('sensor.cam_office_target_shutter') }}"
+
+  # Day/Night switch: sustained crossing of either threshold, in either
+  # direction. Uses trigger.id so a single automation can't have the
+  # "to day" and "to night" branches interrupt each other mid-sequence -
+  # mode: single still applies, but only one branch can ever be relevant
+  # since the condition below gates on the camera's current mode.
+  - alias: "Cam Office - Day/Night Switch"
+    id: cam_office_day_night_switch
+    mode: single
+    trigger:
+      # template triggers (not numeric_state) since the entity being watched
+      # is resolved dynamically via input_text.cam_office_lux_sensor_entity_id
+      - trigger: template
+        id: "to_day"
+        value_template: >
+          {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(0) >
+             states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day') | float(150) }}
+        for: "00:10:00"
+      - trigger: template
+        id: "to_night"
+        value_template: >
+          {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(30000) <
+             states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night') | float(90) }}
+        for: "00:10:00"
+    condition:
+      - condition: or
+        conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'to_day' }}"
+              - condition: state
+                entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+                state: "Night"
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'to_night' }}"
+              - condition: state
+                entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+                state: "Day"
+    action:
+      - choose:
+          # -------- Night -> Day --------
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'to_day' }}"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+                data:
+                  option: "Day"
+              - delay: "00:00:01"
+              - action: select.select_option
+                target:
+                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
+                data:
+                  option: "Region"
+              - delay: "00:00:01"
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_hlc
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_hlc_level
+                data:
+                  value: 29
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_brightness
+                data:
+                  value: 75
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_contrast
+                data:
+                  value: 57
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_saturation
+                data:
+                  value: 65
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_sharpness
+                data:
+                  value: 75
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_noise_reduction_level
+                data:
+                  value: 35
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_smart_supplement_light
+
+          # -------- Day -> Night --------
+          - conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'to_night' }}"
+            sequence:
+              - action: select.select_option
+                target:
+                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+                data:
+                  option: "Night"
+              - delay: "00:00:01"
+              - action: select.select_option
+                target:
+                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
+                data:
+                  option: "Auto"
+              - delay: "00:00:01"
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_hlc
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_hlc_level
+                data:
+                  value: 50
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_brightness
+                data:
+                  value: 80
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_contrast
+                data:
+                  value: 45
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_saturation
+                data:
+                  value: 72
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_sharpness
+                data:
+                  value: 70
+              - action: number.set_value
+                target:
+                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_noise_reduction_level
+                data:
+                  value: 40
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_smart_supplement_light

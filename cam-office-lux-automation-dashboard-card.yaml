@@ -1,0 +1,64 @@
+# ============================================================================
+# Cam Office - Lux Automation Dashboard Card
+#
+# Add via: Edit Dashboard -> Add Card -> Manual (paste this), or via the
+# raw dashboard config editor. Adjust the "view" wrapper if you're pasting
+# into an existing view rather than creating a new one.
+# ============================================================================
+type: vertical-stack
+cards:
+  - type: entities
+    title: Cam Office - Tunable Variables
+    entities:
+      - entity: input_text.cam_office_lux_sensor_entity_id
+        name: Lux Sensor Entity
+      - type: divider
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_floor
+        name: Lux Floor (near-night)
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_ceiling
+        name: Lux Ceiling (peak brightness)
+      - type: divider
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_gain_max
+        name: Gain Max (near-night)
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_gain_min
+        name: Gain Min (peak brightness)
+      - type: divider
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_min
+        name: Shutter Index Min
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_max
+        name: Shutter Index Max
+      - type: divider
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day
+        name: Threshold - Night to Day
+      - entity: input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night
+        name: Threshold - Day to Night
+
+  - type: gauge
+    entity: sensor.cam_office_exposure_frac
+    name: Exposure Fraction
+    min: 0
+    max: 1
+    severity:
+      green: 0
+      yellow: 0.4
+      red: 0.8
+
+  - type: entities
+    title: Cam Office - Live Status
+    entities:
+      - entity: sensor.office_sensor_illuminance
+        name: Current Lux
+      - entity: sensor.cam_office_target_gain
+        name: Target Gain (computed)
+      - entity: sensor.cam_office_target_shutter
+        name: Target Shutter (computed)
+      - entity: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+        name: Day/Night Mode
+      - entity: number.ds_2cd2385g1_i_cam_office_zutzut_com_gain
+        name: Actual Camera Gain
+      - entity: select.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_speed
+        name: Actual Camera Shutter
+      - entity: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
+        name: BLC Mode
+      - entity: switch.ds_2cd2385g1_i_cam_office_zutzut_com_hlc
+        name: HLC
