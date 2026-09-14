@@ -183,6 +183,17 @@ tuning knob).
   the actual entity_id is derived from the `name:` field, *not* from
   `unique_id`. If you renamed `unique_id` without also renaming `name:`,
   references elsewhere will point at an entity_id that was never created.
+- **Day/Night mode never switches even though lux clearly crosses the
+  threshold**: check an automation trace (see below) for a `state`
+  condition that always evaluates `false`. Some integrations report a
+  `select` entity's actual state in a different case than what's shown in
+  the UI dropdown (e.g. state is `"night"` while the dropdown displays
+  "Night") — a plain `condition: state, state: "Night"` will silently never
+  match. This automation's Day/Night condition and option-setting actions
+  use case-insensitive lookups specifically to avoid this, but if you adapt
+  this for a different camera/integration, verify the actual `state` value
+  (not just the dropdown label) via Developer Tools → States before
+  assuming a literal case will match.
 - **Checking what actually happened**: Settings → Automations & Scenes →
   open an automation → Traces tab shows exactly which trigger fired, which
   conditions passed/failed, and the rendered value of every action step.

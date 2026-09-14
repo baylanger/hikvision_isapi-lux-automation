@@ -237,13 +237,13 @@ automation:
         value_template: >
           {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(0) >
              states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day') | float(150) }}
-        for: "00:10:00"
+        for: "00:05:00"
       - trigger: template
         id: "to_night"
         value_template: >
           {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(30000) <
              states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night') | float(90) }}
-        for: "00:10:00"
+        for: "00:05:00"
     condition:
       - condition: or
         conditions:
@@ -251,16 +251,20 @@ automation:
             conditions:
               - condition: template
                 value_template: "{{ trigger.id == 'to_day' }}"
-              - condition: state
-                entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
-                state: "Night"
+              # Case-insensitive: the integration reports this select's raw
+              # state in lowercase ("night"/"day"), not the capitalized
+              # label shown in the UI dropdown - a plain `state:` condition
+              # would silently never match.
+              - condition: template
+                value_template: >
+                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'night' }}
           - condition: and
             conditions:
               - condition: template
                 value_template: "{{ trigger.id == 'to_night' }}"
-              - condition: state
-                entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
-                state: "Day"
+              - condition: template
+                value_template: >
+                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'day' }}
     action:
       - choose:
           # -------- Night -> Day --------
@@ -268,17 +272,28 @@ automation:
               - condition: template
                 value_template: "{{ trigger.id == 'to_day' }}"
             sequence:
+              # Case-safe option lookup: rather than hardcode "Day" and risk
+              # another case mismatch, find whichever of the entity's real
+              # `options` values case-insensitively equals "day" and use
+              # that exact string. Immune to however this integration
+              # actually cases its options.
               - action: select.select_option
                 target:
                   entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
                 data:
-                  option: "Day"
+                  option: >
+                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode', 'options') %}
+                    {% set lowered = opts | map('lower') | list %}
+                    {{ opts[lowered.index('day')] }}
               - delay: "00:00:01"
               - action: select.select_option
                 target:
                   entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
                 data:
-                  option: "Region"
+                  option: >
+                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode', 'options') %}
+                    {% set lowered = opts | map('lower') | list %}
+                    {{ opts[lowered.index('region')] }}
               - delay: "00:00:01"
               - action: switch.turn_on
                 target:
@@ -326,13 +341,19 @@ automation:
                 target:
                   entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
                 data:
-                  option: "Night"
+                  option: >
+                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode', 'options') %}
+                    {% set lowered = opts | map('lower') | list %}
+                    {{ opts[lowered.index('night')] }}
               - delay: "00:00:01"
               - action: select.select_option
                 target:
                   entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
                 data:
-                  option: "Auto"
+                  option: >
+                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode', 'options') %}
+                    {% set lowered = opts | map('lower') | list %}
+                    {{ opts[lowered.index('auto')] }}
               - delay: "00:00:01"
               - action: switch.turn_on
                 target:
