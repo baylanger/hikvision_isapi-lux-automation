@@ -222,10 +222,20 @@ automation:
                   option: "{{ states('sensor.cam_office_target_shutter') }}"
 
   # Day/Night switch: sustained crossing of either threshold, in either
-  # direction. Uses trigger.id so a single automation can't have the
-  # "to day" and "to night" branches interrupt each other mid-sequence -
-  # mode: single still applies, but only one branch can ever be relevant
-  # since the condition below gates on the camera's current mode.
+  # direction, PLUS re-checks right when this could get out of sync.
+  #
+  # Why the extra triggers: a `template` trigger with `for:` only fires on
+  # a false->true transition it personally witnesses. If lux is ALREADY
+  # above threshold at the moment this automation loads/reloads (e.g. right
+  # after a fix is deployed, or after a restart) and simply stays there, no
+  # transition is ever observed - the trigger silently never fires, even
+  # though the real-world condition has clearly been true for a long time.
+  #
+  # The fix: re-check right after the two moments this can actually happen -
+  # an automation reload, and a full HA restart - rather than polling
+  # blindly. Both choose branches below check the actual current mode + lux
+  # directly rather than relying on which trigger fired (`trigger.id`), so
+  # the automation is self-healing regardless of what caused it to run.
   - alias: "Cam Office - Day/Night Switch"
     id: cam_office_day_night_switch
     mode: single
@@ -244,33 +254,39 @@ automation:
           {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(30000) <
              states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night') | float(90) }}
         for: "00:05:00"
-    condition:
-      - condition: or
-        conditions:
-          - condition: and
-            conditions:
-              - condition: template
-                value_template: "{{ trigger.id == 'to_day' }}"
-              # Case-insensitive: the integration reports this select's raw
-              # state in lowercase ("night"/"day"), not the capitalized
-              # label shown in the UI dropdown - a plain `state:` condition
-              # would silently never match.
-              - condition: template
-                value_template: >
-                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'night' }}
-          - condition: and
-            conditions:
-              - condition: template
-                value_template: "{{ trigger.id == 'to_night' }}"
-              - condition: template
-                value_template: >
-                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'day' }}
+      # Re-check whenever automations get reloaded (Developer Tools -> YAML
+      # -> Reload Automations, or the automation.reload service) - this is
+      # exactly the moment a missed edge (see comment above) can happen.
+      - trigger: event
+        id: "post_reload"
+        event_type: automation_reloaded
+      # Re-check once Home Assistant has finished starting up, covering the
+      # same failure mode after a full restart.
+      - trigger: homeassistant
+        id: "post_start"
+        event: start
     action:
+      # Give entities (input_text/input_number/the camera integration
+      # itself) a moment to fully populate after a cold start before
+      # trusting their values - only applies to the startup trigger, so
+      # normal dusk/dawn transitions aren't delayed.
+      - if:
+          - condition: template
+            value_template: "{{ trigger.platform == 'homeassistant' }}"
+        then:
+          - delay: "00:00:30"
       - choose:
           # -------- Night -> Day --------
+          # Checked directly against real-time mode + lux, not trigger.id,
+          # so this fires correctly regardless of which trigger caused this
+          # run (a fresh sustained crossing, OR the periodic safety net
+          # catching a state that's been true for a while already).
           - conditions:
               - condition: template
-                value_template: "{{ trigger.id == 'to_day' }}"
+                value_template: >
+                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'night'
+                     and states(states('input_text.cam_office_lux_sensor_entity_id')) | float(0) >
+                         states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day') | float(150) }}
             sequence:
               # Case-safe option lookup: rather than hardcode "Day" and risk
               # another case mismatch, find whichever of the entity's real
@@ -335,7 +351,10 @@ automation:
           # -------- Day -> Night --------
           - conditions:
               - condition: template
-                value_template: "{{ trigger.id == 'to_night' }}"
+                value_template: >
+                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'day'
+                     and states(states('input_text.cam_office_lux_sensor_entity_id')) | float(30000) <
+                         states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night') | float(90) }}
             sequence:
               - action: select.select_option
                 target:

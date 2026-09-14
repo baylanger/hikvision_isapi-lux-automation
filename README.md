@@ -95,9 +95,37 @@ The card has three sections:
 **Tunable Variables** — the `input_number`/`input_text` helpers that shape
 the exposure curve and day/night thresholds. **Editing these here is always
 safe and never gets overwritten** — the automations only *read* these
-values, they never write to them. Change one, and the next automation cycle
-(within a minute for exposure, or the next lux crossing for thresholds)
-picks it up.
+values, they never write to them. When a change actually reaches the
+camera differs by which helper you touch:
+
+- **Exposure helpers** (`lux_floor`, `lux_ceiling`, `gain_max`, `gain_min`,
+  `shutter_idx_min`, `shutter_idx_max`): picked up automatically within
+  about a minute. The exposure sensors recompute every 60 seconds
+  regardless of what triggered them, so a change just takes effect on the
+  next tick.
+- **Day/Night thresholds** (`lux_night_to_day`, `lux_day_to_night`): more
+  subtle, because the trigger's lux lookup is indirect (through the
+  `input_text` sensor helper), Home Assistant can't statically determine
+  what to watch and falls back to re-evaluating on every state change
+  system-wide — which does include these helpers changing. But the
+  `for: 00:05:00` sustain still applies on top of that:
+  - If your change doesn't flip the true/false result (lux was already
+    past both the old and new threshold), nothing resets — it keeps
+    counting toward whatever crossing it already detected.
+  - If your change *does* flip the result (e.g. lowering the day-to-night
+    threshold below current lux), that counts as a fresh transition and
+    the 10-minute countdown **restarts from that moment** — it won't apply
+    instantly. This is correct behavior for normal operation (it's what
+    prevents flapping), but can be surprising while actively tuning and
+    expecting an immediate result.
+- Neither the reload nor startup event triggers fire from a helper value
+  changing — those only fire on an actual automation reload or HA restart.
+
+If you want an instant push while tuning — bypassing the minute-tick wait
+or the 10-minute sustain — that would take a dedicated "force recheck now"
+helper (e.g. an `input_button` both automations also trigger on); not
+included here since it's a tuning convenience rather than something the
+automation needs, but straightforward to add if useful.
 
 **Exposure Fraction gauge** — a read-only visual of the current normalized
 brightness value (0 = your configured "floor" lux, 1 = your configured
@@ -189,11 +217,24 @@ tuning knob).
   `select` entity's actual state in a different case than what's shown in
   the UI dropdown (e.g. state is `"night"` while the dropdown displays
   "Night") — a plain `condition: state, state: "Night"` will silently never
-  match. This automation's Day/Night condition and option-setting actions
-  use case-insensitive lookups specifically to avoid this, but if you adapt
+  match. This automation's Day/Night logic and option-setting actions use
+  case-insensitive lookups specifically to avoid this, but if you adapt
   this for a different camera/integration, verify the actual `state` value
   (not just the dropdown label) via Developer Tools → States before
   assuming a literal case will match.
+- **Day/Night automation shows "last triggered" hours/days ago and never
+  fires, even though lux is clearly past the threshold**: `template`
+  triggers with `for:` only fire on a false→true transition they actually
+  witness. If the condition was already true when the automation last
+  loaded (e.g. right after a reload/restart) and simply stayed true, no
+  transition ever occurs and the trigger silently never fires — it isn't
+  stuck, it's just never seen an edge to react to. This automation
+  re-checks the real-time state directly (not tied to which trigger fired)
+  whenever automations get reloaded and whenever HA finishes starting up —
+  the two moments this can actually happen — so it self-corrects right
+  after either event instead of needing a fresh threshold crossing. If you
+  strip those two triggers out during customization, this failure mode
+  comes back.
 - **Checking what actually happened**: Settings → Automations & Scenes →
   open an automation → Traces tab shows exactly which trigger fired, which
   conditions passed/failed, and the rendered value of every action step.
