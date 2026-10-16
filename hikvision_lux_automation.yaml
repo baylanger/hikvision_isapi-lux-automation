@@ -1,16 +1,10 @@
 # ============================================================================
-# Cam Office - Lux-driven exposure automation
-# Replaces the old sunrise/sunset XML-upload automation.
+# CAMERA_NAME Lux-driven exposure automation
+# ============================================================================
 #
-# Deploy as a HA "package" (recommended): drop this file at
-# /config/packages/cam-office-lux-automation.yaml and make sure
-# `homeassistant: packages: !include_dir_named packages` is set in
-# configuration.yaml. Otherwise, split the four top-level keys
-# (input_number / template / automation) into your existing
-# configuration.yaml / automations.yaml as appropriate.
-#
-# Validate before deploying:
-#   python3 -c "import yaml; yaml.safe_load(open('cam-office-lux-automation.yaml').read().replace('!include', '#!include'))"
+### Validate file before deploying:
+#   python3 -c 'import yaml; yaml.safe_load(open("CAMERA_NAME_SLUG_lux_automation.yaml").read().replace("!include", "#!include"))'
+###
 #
 # ----------------------------------------------------------------------------
 # About the input_number fields below (min / max / step / initial):
@@ -30,66 +24,66 @@
 # ============================================================================
 
 input_text:
-  cam_office_lux_sensor_entity_id:
-    name: Cam Office Lux Sensor Entity ID
+  CAMERA_NAME_SLUG_lux_sensor_entity_id:
+    name: CAMERA_NAME Lux Sensor Entity ID
     icon: mdi:brightness-5
     max: 255
-    initial: sensor.office_sensor_illuminance
+    initial: sensor.CAMERA_SENSOR_ILLUMINANCE
 
 input_number:
-  ds_2cd2385g1_i_cam_office_zutzut_com_lux_floor:
-    name: Cam Office Lux Floor
+  CAMERA_ENTITY_ID_PREFIX_lux_floor:
+    name: CAMERA_NAME Lux Floor
     icon: mdi:brightness-4
     min: 0
     max: 1000
     step: 1
     initial: 5
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_lux_ceiling:
-    name: Cam Office Lux Ceiling
+  CAMERA_ENTITY_ID_PREFIX_lux_ceiling:
+    name: CAMERA_NAME Lux Ceiling
     icon: mdi:brightness-7
     min: 1000
     max: 30000
     step: 100
     initial: 25000
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_gain_max:
-    name: Cam Office Gain Max (near-night)
+  CAMERA_ENTITY_ID_PREFIX_gain_max:
+    name: CAMERA_NAME Gain Max (near-night)
     min: 0
     max: 100
     step: 1
     initial: 80
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_gain_min:
-    name: Cam Office Gain Min (peak brightness)
+  CAMERA_ENTITY_ID_PREFIX_gain_min:
+    name: CAMERA_NAME Gain Min (peak brightness)
     min: 0
     max: 100
     step: 1
     initial: 10
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_min:
-    name: Cam Office Shutter Index Min (near-night)
+  CAMERA_ENTITY_ID_PREFIX_shutter_idx_min:
+    name: CAMERA_NAME Shutter Index Min (near-night)
     min: 0
     max: 14
     step: 1
     initial: 5      # index 5 = 1/120
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_max:
-    name: Cam Office Shutter Index Max (peak brightness)
+  CAMERA_ENTITY_ID_PREFIX_shutter_idx_max:
+    name: CAMERA_NAME Shutter Index Max (peak brightness)
     min: 0
     max: 14
     step: 1
     initial: 14     # index 14 = 1/100000
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day:
-    name: Cam Office Lux Threshold - Night to Day
+  CAMERA_ENTITY_ID_PREFIX_lux_night_to_day:
+    name: CAMERA_NAME Lux Threshold - Night to Day
     min: 0
     max: 2000
     step: 5
     initial: 150
 
-  ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night:
-    name: Cam Office Lux Threshold - Day to Night
+  CAMERA_ENTITY_ID_PREFIX_lux_day_to_night:
+    name: CAMERA_NAME Lux Threshold - Day to Night
     min: 0
     max: 2000
     step: 5
@@ -112,15 +106,15 @@ template:
     variables:
       # Resolve WHICH sensor to read from the input_text helper, so this
       # automation isn't hardcoded to one specific lux sensor entity.
-      lux_sensor: "{{ states('input_text.cam_office_lux_sensor_entity_id') }}"
+      lux_sensor: "{{ states('input_text.CAMERA_NAME_SLUG_lux_sensor_entity_id') }}"
       # The actual lux reading. Floored at 1 (never 0) because step 6 takes
       # a natural log of this value, and log(0) is undefined/-infinity.
       lux: "{{ [states(lux_sensor) | float(0), 1] | max }}"
       # Lux value treated as "fully dark" - the bottom anchor of the
       # brightness curve. Read live from its input_number each cycle.
-      floor: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_floor') | float(5) }}"
+      floor: "{{ states('input_number.CAMERA_ENTITY_ID_PREFIX_lux_floor') | float(5) }}"
       # Lux value treated as "fully bright" - the top anchor of the curve.
-      ceil: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_ceiling') | float(25000) }}"
+      ceil: "{{ states('input_number.CAMERA_ENTITY_ID_PREFIX_lux_ceiling') | float(25000) }}"
       # Raw log-scale position of the current lux between floor and ceiling.
       # Log scale (rather than linear) because exposure/perceived brightness
       # relates to light roughly logarithmically - each camera "stop" is a
@@ -133,9 +127,9 @@ template:
       # is it right now" value that everything else below is computed from.
       frac: "{{ [ [frac_raw, 0] | max, 1] | min }}"
       # Camera gain to use at frac=0 (near-night) - i.e. the ceiling of gain.
-      gmax: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_gain_max') | float(80) }}"
+      gmax: "{{ states('input_number.CAMERA_ENTITY_ID_PREFIX_gain_max') | float(80) }}"
       # Camera gain to use at frac=1 (peak brightness) - i.e. the floor of gain.
-      gmin: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_gain_min') | float(10) }}"
+      gmin: "{{ states('input_number.CAMERA_ENTITY_ID_PREFIX_gain_min') | float(10) }}"
       # Linear interpolation between gmax and gmin using frac, rounded to
       # the nearest step of 5. The rounding acts as a deadband: small lux
       # fluctuations that don't shift the result by a full 5 won't change
@@ -151,10 +145,10 @@ template:
             '1/750','1/1000','1/2000','1/4000','1/10000','1/100000'] }}
       # Index into `shutter_options` to use at frac=0 (near-night, i.e. the
       # slowest shutter allowed). Index 5 = 1/120 in the default list.
-      imin: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_min') | int(5) }}"
+      imin: "{{ states('input_number.CAMERA_ENTITY_ID_PREFIX_shutter_idx_min') | int(5) }}"
       # Index into `shutter_options` to use at frac=1 (peak brightness, i.e.
       # the fastest shutter allowed). Index 14 = 1/100000 in the default list.
-      imax: "{{ states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_idx_max') | int(14) }}"
+      imax: "{{ states('input_number.CAMERA_ENTITY_ID_PREFIX_shutter_idx_max') | int(14) }}"
       # Linear interpolation between imin and imax using frac, rounded to
       # the nearest whole index (shutter options are discrete, not
       # continuous, so this must land on an actual list position) and
@@ -163,17 +157,17 @@ template:
         {{ [ [ (imin + frac * (imax - imin)) | round(0), 0] | max,
              shutter_options | length - 1 ] | min }}
     sensor:
-      - name: "Cam Office Exposure Frac"
-        unique_id: ds_2cd2385g1_i_cam_office_zutzut_com_exposure_frac
+      - name: "CAMERA_NAME Exposure Frac"
+        unique_id: CAMERA_ENTITY_ID_PREFIX_exposure_frac
         state: "{{ frac | round(4) }}"
 
-      - name: "Cam Office Target Gain"
-        unique_id: ds_2cd2385g1_i_cam_office_zutzut_com_target_gain
+      - name: "CAMERA_NAME Target Gain"
+        unique_id: CAMERA_ENTITY_ID_PREFIX_target_gain
         unit_of_measurement: "%"
         state: "{{ target_gain }}"
 
-      - name: "Cam Office Target Shutter"
-        unique_id: ds_2cd2385g1_i_cam_office_zutzut_com_target_shutter
+      - name: "CAMERA_NAME Target Shutter"
+        unique_id: CAMERA_ENTITY_ID_PREFIX_target_shutter
         state: "{{ shutter_options[shutter_idx] }}"
 
 # ----------------------------------------------------------------------------
@@ -185,41 +179,41 @@ automation:
   # Only writes to the camera when the target actually differs from the
   # current value (gain is already quantized to steps of 5 in the template,
   # shutter is inherently discrete) - so no needless chatter.
-  - alias: "Cam Office - Apply exposure from lux"
-    id: cam_office_apply_exposure
+  - alias: "CAMERA_NAME - Apply exposure from lux"
+    id: CAMERA_NAME_SLUG_apply_exposure
     mode: restart
     trigger:
       - trigger: state
-        entity_id: sensor.cam_office_exposure_frac
+        entity_id: sensor.CAMERA_NAME_SLUG_exposure_frac
         for: "00:00:15"
     condition:
       - condition: template
-        value_template: "{{ states('sensor.cam_office_target_gain') not in ['unknown','unavailable'] }}"
+        value_template: "{{ states('sensor.CAMERA_NAME_SLUG_target_gain') not in ['unknown','unavailable'] }}"
     action:
       - choose:
           - conditions:
               - condition: template
                 value_template: >
-                  {{ states('sensor.cam_office_target_gain') | float(0) !=
-                     states('number.ds_2cd2385g1_i_cam_office_zutzut_com_gain') | float(-1) }}
+                  {{ states('sensor.CAMERA_NAME_SLUG_target_gain') | float(0) !=
+                     states('number.CAMERA_ENTITY_ID_PREFIX_gain') | float(-1) }}
             sequence:
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_gain
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_gain
                 data:
-                  value: "{{ states('sensor.cam_office_target_gain') }}"
+                  value: "{{ states('sensor.CAMERA_NAME_SLUG_target_gain') }}"
       - choose:
           - conditions:
               - condition: template
                 value_template: >
-                  {{ states('sensor.cam_office_target_shutter') !=
-                     states('select.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_speed') }}
+                  {{ states('sensor.CAMERA_NAME_SLUG_target_shutter') !=
+                     states('select.CAMERA_ENTITY_ID_PREFIX_shutter_speed') }}
             sequence:
               - action: select.select_option
                 target:
-                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_shutter_speed
+                  entity_id: select.CAMERA_ENTITY_ID_PREFIX_shutter_speed
                 data:
-                  option: "{{ states('sensor.cam_office_target_shutter') }}"
+                  option: "{{ states('sensor.CAMERA_NAME_SLUG_target_shutter') }}"
 
   # Day/Night switch: sustained crossing of either threshold, in either
   # direction, PLUS re-checks right when this could get out of sync.
@@ -236,23 +230,23 @@ automation:
   # blindly. Both choose branches below check the actual current mode + lux
   # directly rather than relying on which trigger fired (`trigger.id`), so
   # the automation is self-healing regardless of what caused it to run.
-  - alias: "Cam Office - Day/Night Switch"
-    id: cam_office_day_night_switch
+  - alias: "CAMERA_NAME - Day/Night Switch"
+    id: CAMERA_NAME_SLUG_day_night_switch
     mode: single
     trigger:
       # template triggers (not numeric_state) since the entity being watched
-      # is resolved dynamically via input_text.cam_office_lux_sensor_entity_id
+      # is resolved dynamically via input_text.CAMERA_NAME_SLUG_lux_sensor_entity_id
       - trigger: template
         id: "to_day"
         value_template: >
-          {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(0) >
-             states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day') | float(150) }}
+          {{ states(states('input_text.CAMERA_NAME_SLUG_lux_sensor_entity_id')) | float(0) >
+             states('input_number.CAMERA_ENTITY_ID_PREFIX_lux_night_to_day') | float(150) }}
         for: "00:05:00"
       - trigger: template
         id: "to_night"
         value_template: >
-          {{ states(states('input_text.cam_office_lux_sensor_entity_id')) | float(30000) <
-             states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night') | float(90) }}
+          {{ states(states('input_text.CAMERA_NAME_SLUG_lux_sensor_entity_id')) | float(30000) <
+             states('input_number.CAMERA_ENTITY_ID_PREFIX_lux_day_to_night') | float(90) }}
         for: "00:05:00"
       # Re-check whenever automations get reloaded (Developer Tools -> YAML
       # -> Reload Automations, or the automation.reload service) - this is
@@ -284,9 +278,9 @@ automation:
           - conditions:
               - condition: template
                 value_template: >
-                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'night'
-                     and states(states('input_text.cam_office_lux_sensor_entity_id')) | float(0) >
-                         states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_night_to_day') | float(150) }}
+                  {{ states('select.CAMERA_ENTITY_ID_PREFIX_day_night_mode') | lower == 'night'
+                     and states(states('input_text.CAMERA_NAME_SLUG_lux_sensor_entity_id')) | float(0) >
+                         states('input_number.CAMERA_ENTITY_ID_PREFIX_lux_night_to_day') | float(150) }}
             sequence:
               # Case-safe option lookup: rather than hardcode "Day" and risk
               # another case mismatch, find whichever of the entity's real
@@ -295,118 +289,118 @@ automation:
               # actually cases its options.
               - action: select.select_option
                 target:
-                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+                  entity_id: select.CAMERA_ENTITY_ID_PREFIX_day_night_mode
                 data:
                   option: >
-                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode', 'options') %}
+                    {% set opts = state_attr('select.CAMERA_ENTITY_ID_PREFIX_day_night_mode', 'options') %}
                     {% set lowered = opts | map('lower') | list %}
                     {{ opts[lowered.index('day')] }}
               - delay: "00:00:01"
               - action: select.select_option
                 target:
-                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
+                  entity_id: select.CAMERA_ENTITY_ID_PREFIX_blc_mode
                 data:
                   option: >
-                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode', 'options') %}
+                    {% set opts = state_attr('select.CAMERA_ENTITY_ID_PREFIX_blc_mode', 'options') %}
                     {% set lowered = opts | map('lower') | list %}
                     {{ opts[lowered.index('region')] }}
               - delay: "00:00:01"
               - action: switch.turn_on
                 target:
-                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_hlc
+                  entity_id: switch.CAMERA_ENTITY_ID_PREFIX_hlc
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_hlc_level
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_hlc_level
                 data:
                   value: 29
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_brightness
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_brightness
                 data:
                   value: 75
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_contrast
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_contrast
                 data:
                   value: 57
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_saturation
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_saturation
                 data:
                   value: 65
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_sharpness
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_sharpness
                 data:
                   value: 75
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_noise_reduction_level
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_noise_reduction_level
                 data:
                   value: 35
               - action: switch.turn_off
                 target:
-                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_smart_supplement_light
+                  entity_id: switch.CAMERA_ENTITY_ID_PREFIX_smart_supplement_light
 
           # -------- Day -> Night --------
           - conditions:
               - condition: template
                 value_template: >
-                  {{ states('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode') | lower == 'day'
-                     and states(states('input_text.cam_office_lux_sensor_entity_id')) | float(30000) <
-                         states('input_number.ds_2cd2385g1_i_cam_office_zutzut_com_lux_day_to_night') | float(90) }}
+                  {{ states('select.CAMERA_ENTITY_ID_PREFIX_day_night_mode') | lower == 'day'
+                     and states(states('input_text.CAMERA_NAME_SLUG_lux_sensor_entity_id')) | float(30000) <
+                         states('input_number.CAMERA_ENTITY_ID_PREFIX_lux_day_to_night') | float(90) }}
             sequence:
               - action: select.select_option
                 target:
-                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode
+                  entity_id: select.CAMERA_ENTITY_ID_PREFIX_day_night_mode
                 data:
                   option: >
-                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_day_night_mode', 'options') %}
+                    {% set opts = state_attr('select.CAMERA_ENTITY_ID_PREFIX_day_night_mode', 'options') %}
                     {% set lowered = opts | map('lower') | list %}
                     {{ opts[lowered.index('night')] }}
               - delay: "00:00:01"
               - action: select.select_option
                 target:
-                  entity_id: select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode
+                  entity_id: select.CAMERA_ENTITY_ID_PREFIX_blc_mode
                 data:
                   option: >
-                    {% set opts = state_attr('select.ds_2cd2385g1_i_cam_office_zutzut_com_blc_mode', 'options') %}
+                    {% set opts = state_attr('select.CAMERA_ENTITY_ID_PREFIX_blc_mode', 'options') %}
                     {% set lowered = opts | map('lower') | list %}
                     {{ opts[lowered.index('auto')] }}
               - delay: "00:00:01"
               - action: switch.turn_on
                 target:
-                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_hlc
+                  entity_id: switch.CAMERA_ENTITY_ID_PREFIX_hlc
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_hlc_level
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_hlc_level
                 data:
                   value: 50
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_brightness
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_brightness
                 data:
                   value: 80
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_contrast
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_contrast
                 data:
                   value: 45
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_saturation
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_saturation
                 data:
                   value: 72
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_sharpness
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_sharpness
                 data:
                   value: 70
               - action: number.set_value
                 target:
-                  entity_id: number.ds_2cd2385g1_i_cam_office_zutzut_com_noise_reduction_level
+                  entity_id: number.CAMERA_ENTITY_ID_PREFIX_noise_reduction_level
                 data:
                   value: 40
               - action: switch.turn_off
                 target:
-                  entity_id: switch.ds_2cd2385g1_i_cam_office_zutzut_com_smart_supplement_light
+                  entity_id: switch.CAMERA_ENTITY_ID_PREFIX_smart_supplement_light
